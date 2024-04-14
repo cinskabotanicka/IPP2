@@ -1,6 +1,6 @@
 <?php
 /**
- * File for the Variable class.
+ * Soubor pro třídu Variable.
  * @author xhroma15
  * 
  */
@@ -25,7 +25,7 @@ class Variable {
             preg_match('/(?<=@).*/', $argNode->nodeValue, $match);
             $this->name = $match[0];
             $this->checkName($this->name);
-            $this->value = $argNode->null;
+            $this->value = null;
         } catch (Exception $e) {
             exit("Error creating variable: " . $e->getMessage());
         }
@@ -75,5 +75,9 @@ class Variable {
 
     public function getValue() {
         return $this->value;
+    }
+
+    public function setValue($value) {
+        $this->value = $value;
     }
 }

@@ -1,13 +1,18 @@
 <?php
+/**
+ * Soubor pro třídu Interpreter.
+ * @author xhroma15
+ * 
+ */
 
 namespace IPP\Student;
 
 use IPP\Core\AbstractInterpreter;
-use IPP\Core\Exception\NotImplementedException;
 use IPP\Student\Variable;
 use IPP\Student\Operand;
-use IPP\Student\Instruction;
-
+use IPP\Student\InstructionFactory;
+use IPP\Student\Instruction;  
+use IPP\Core\ReturnCode;
 
 class Interpreter extends AbstractInterpreter
 {
@@ -15,32 +20,10 @@ class Interpreter extends AbstractInterpreter
     {
         // Získání instrukcí
         $instructions = $this->getInstructions();
-
-        // Výpis instrukcí s jejich argumenty
-        $this->stdout->writeString("Instructions: " . PHP_EOL);
-                
-        // Procházení instrukcí
-        foreach ($instructions as $instruction) {
-            $opcode = $instruction->getOpcode();
-            $args = $instruction->getArgs();
-            
-            // Výpis opcode a argumentů
-            $this->stdout->writeString("Opcode: " . $opcode . PHP_EOL);// Vytiskne všechny argumenty postupně
-            foreach ($args as $arg) {
-                // Získání typu a hodnoty argumentu
-                $value = $arg->getValue();
-
-                // Vytisknutí typu a hodnoty argumentu
-                $this->stdout->writeString("Argument value: " . $value . PHP_EOL);
-            }
-            
-        }
-
-        $val = $this->input->readString();
-        $this->stdout->writeString("stdout");
-        $this->stderr->writeString("stderr");
-        
-        throw new NotImplementedException;
+        // Provedení instrukcí
+        $this->executeInstructions($instructions);
+        // vrátí kód návratu OK
+        return ReturnCode::OK;
     }
 
     // Metoda pro získání instrukcí
@@ -49,11 +32,13 @@ class Interpreter extends AbstractInterpreter
         // Získání DOM dokumentu z vstupního XML souboru
         $dom = $this->source->getDOMDocument();
         $instructions = [];
+        $instructionFactory = new InstructionFactory();
 
         // Projde všechny prvky <instruction> v DOM dokumentu
         foreach ($dom->getElementsByTagName('instruction') as $instructionNode) {
             // Získání opcode z atributu 'opcode'
             $opcode = $instructionNode->getAttribute('opcode');
+            $order = $instructionNode->getAttribute('order');
 
             // Inicializace pole pro argumenty
             $args = [];
@@ -78,10 +63,39 @@ class Interpreter extends AbstractInterpreter
             }
             
             // Vytvoření instance třídy Instruction s opcode a argumenty a přidání do pole
-            $instructions[] = new Instruction($opcode, $args);
+            $instructions[] = $instructionFactory->createInstruction($opcode, $args, $order);
         }
         
-        
         return $instructions;
+
     }
+
+    // Metoda pro provedení instrukcí
+    private function executeInstructions(array $instructions): void
+    {
+        // Získání správného pořadí instrukcí na základě atributu 'order'
+        $instructionOrder = [];
+
+        foreach ($instructions as $index => $instruction) {
+            $order = $instruction->getOrder(); 
+            if (isset($instructionOrder[$order - 1])) {
+                throw new InvalidSourceStructureException("Multiple instruction order number");
+            }
+            $instructionOrder[$order - 1] = $index;
+        }
+
+        // Seřazení instrukcí podle pořadí
+        ksort($instructionOrder);
+
+        // Provedení instrukcí v pořadí získaném z atributu 'order'
+        foreach ($instructionOrder as $index) {
+
+            $opcode = $instructions[$index]->getOpcode();
+            $className = $instructions[$index]->getClassName($opcode);
+            // Zavolání metody pro provedení instrukce
+            $specificMethod = $instructions[$index]->getSpecificMethod($className);
+            $specificMethod();
+        }
+    }
+
 }
