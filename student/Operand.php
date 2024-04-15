@@ -4,11 +4,11 @@
  * @author xhroma15
  * 
  */
-
 namespace IPP\Student;
 
 use Exception;
-use IPP\Student\OperandValueException;
+use IPP\Student\Exceptions\OperandValueException;
+use IPP\Student\Exceptions\OperandTypeException;
 
 // Třída pro operand
 class Operand {    
@@ -19,33 +19,37 @@ class Operand {
         // uloží hodnoty operandu
         try {
             $this->type = $argNode->getAttribute("type");
-            // uloží hodnotu operandu
-            // pokud je to int, zkountoluje, zda je i hodnota int
-            if ($this->type == "int") {
-                if (!is_numeric($argNode->nodeValue)) {
-                    throw new OperandValueException("Operand value does not match the type");
-                }
-            }
-            // pokuď je to bool, zkontroluje, zda je i hodnota bool
-            if ($this->type == "bool") {
-                if ($argNode->nodeValue != "true" && $argNode->nodeValue != "false") {
-                    throw new OperandValueException("Operand value does not match the type");
-                }
-            }
-            // pokud je to string, zkontroluje, zda je i hodnota string
-            if ($this->type == "string") {
-                if (!is_string($argNode->nodeValue)) {
-                    throw new OperandValueException("Operand value does not match the type");
-                }
-            }
-            // pokud je to nil, zkontroluje, zda je i hodnota nil
-            if ($this->type == "nil") {
-                if ($argNode->nodeValue != "nil") {
-                    throw new OperandValueException("Operand value does not match the type");
-                }
+            $nodeValue = $argNode->nodeValue;
+
+            switch ($this->type) {
+                case "int":
+                    // Pokud je typ int, ověří, zda je hodnota celé číslo
+                    if (!ctype_digit($nodeValue)) {
+                        throw new OperandValueException("Operand value does not match the type");
+                    }
+                    break;
+                case "bool":
+                    // Pokud je typ bool, ověří, zda je hodnota true nebo false
+                    if ($nodeValue !== "true" && $nodeValue !== "false") {
+                        throw new OperandValueException("Operand value does not match the type");
+                    }
+                    break;
+                case "string":
+                    // Pokud je typ string, nemusí se dělat žádná další kontrola
+                    break;
+                case "nil":
+                    // Pokud je typ nil, ověří, zda je hodnota "nil"
+                    if ($nodeValue !== "nil") {
+                        throw new OperandValueException("Operand value does not match the type");
+                    }
+                    break;
+                default:
+                    // Pokud je typ neznámý, vyvolá chybu
+                    throw new OperandValueException("Unknown operand type");
             }
 
-            $this->value = $argNode->nodeValue;
+            // Uloží hodnotu operandu
+            $this->value = $nodeValue;
         }
         catch (Exception $e) {
             throw new OperandValueException("Operand value does not match the type");

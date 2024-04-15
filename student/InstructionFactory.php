@@ -8,13 +8,14 @@
 
 namespace IPP\Student;
 
-use IPP\Student\SemanticException;
+use IPP\Student\Exceptions\SemanticException;
 use IPP\Student\Variable;
 use IPP\Student\FrameManager;
-use IPP\Student\Frame;
 use IPP\Student\Exceptions\OperandTypeException;
 use IPP\Student\Exceptions\VariableAccessException;
-use IPP\Student\Interpreter;
+use IPP\Student\Exceptions\OperandValueException;
+use IPP\Student\Exceptions\FrameAccessException;
+use IPP\Core\Settings;
 
 class InstructionFactory
 {
@@ -170,25 +171,50 @@ class FrameOperation extends Instruction
 {
     use ArgumentCountChecker, ArgumentTypeChecker;
     
-    public function __construct($opcode, $args, $order)
+    public function __construct($opcode, $args, $order, $frameManager)
     {
         $this->checkArgumentCount($this->args, 0);
-        parent::__construct($opcode, $args, $order); 
+        parent::__construct($opcode, $args, $order, $frameManager); 
     }
 
     private function createFrame()
     {
+        // Zahodí případný původní dočasný rámec
+        if ($this->frameManager->getCurrentFrame()->getFrameName() === 'TF'){
+            $this->frameManager->popFrame();
+        }
+
+        // Vytvoří nový dočasný paměťový rámec
+        $this->frameManager->createFrame('TF');
 
     }
 
     private function pushFrame()
     {
+        // Zkontroluje, zda je aktuální rámec TF
+        $currentFrame = $this->frameManager->getCurrentFrame();
+        if ($currentFrame->getFrameName() !== 'TF') {
+            throw new FrameAccessException("No TemporaryFrame (TF) available to push onto the stack.");
+        }
 
+        // Přesune TF na zásobník rámců, ale s novým názvem LF
+        $this->frameManager->popFrame();
+        $this->frameManager->createFrame('LF');
+        $currentFrame->moveVariablesToFrame($this->frameManager->getCurrentFrame());
     }
 
     private function popFrame()
     {
-
+        // Zkontroluje, zda je aktuální rámec LF
+        $currentFrame = $this->frameManager->getCurrentFrame();
+        if ($currentFrame->getFrameName() !== 'LF') {
+            throw new FrameAccessException("No LocalFrame (LF) available to pop from the stack.");
+        }
+        // Přesune LF na zásobník rámců, ale s novým názvem TF
+        $this->frameManager->popFrame();
+        $this->frameManager->createFrame('TF');
+        $currentFrame->moveVariablesToFrame($this->frameManager->getCurrentFrame());
+        
     }
 
     public function getSpecificMethod() 
@@ -322,27 +348,33 @@ class Arithmetic extends Instruction
     public function __construct($opcode, $args, $order, $frameManager)
     {
         parent::__construct($opcode, $args, $order, $frameManager);
+        // Zkontroluje, zda je počet argumentů správný
+        if (count($args) !== 3) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
+        // Zkontroluje, zda je první argument proměnná
+        if (!($args[0] instanceof Variable)) {
+            throw new OperandTypeException('First argument must be variable');
+        }
+
+        // Zkontroluje, zda je druhý a třetí argument integer
+        if (!($args[1] instanceof Operand) || $args[1]->getType() !== 'int') {
+            throw new OperandTypeException('Second argument must be integer');
+        }
+        if (!($args[2] instanceof Operand) || $args[2]->getType() !== 'int') {
+            throw new OperandTypeException('Third argument must be integer');
+        }
     }
 
     public function add()
     {
-        // Ověření, zda je první argument proměnná
-        if (!($this->args[0] instanceof Variable)) {
-            throw new OperandTypeException('First argument must be variable');
-        }
-        // Ověření, zda je druhý argument integer
-        if (!($this->args[1] instanceof Operand) || $this->args[1]->getType() !== 'int') {
-            throw new OperandTypeException('Second argument must be integer');
-        }
-        // Ověření, zda je třetí argument integer
-        if (!($this->args[2] instanceof Operand) || $this->args[2]->getType() !== 'int') {
-            throw new OperandTypeException('Third argument must be integer');
-        }
-        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0])) {
             throw new VariableAccessException('Variable is not initialized');
         }
+
         // Přičtení hodnot do proměnné v rámci
         $result = ($this->args[1]->getValue() + $this->args[2]->getValue());
         $currentFrame->addValueToVariable($this->args[0], $result);
@@ -350,17 +382,42 @@ class Arithmetic extends Instruction
 
     public function sub()
     {
-        // Doplň implementační logiku pro SUB
+        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        $currentFrame = $this->frameManager->getCurrentFrame();
+        if (!$currentFrame->isVariableInFrame($this->args[0])) {
+            throw new VariableAccessException('Variable is not initialized');
+        }
+        // Odečtení hodnot do proměnné v rámci
+        $result = ($this->args[1]->getValue() - $this->args[2]->getValue());    
+        $currentFrame->addValueToVariable($this->args[0], $result);
     }
 
     public function mul()
     {
-        // Doplň implementační logiku pro MUL
+        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        $currentFrame = $this->frameManager->getCurrentFrame();
+        if (!$currentFrame->isVariableInFrame($this->args[0])) {
+            throw new VariableAccessException('Variable is not initialized');
+        }
+        // Vynásobení hodnot do proměnné v rámci
+        $result = ($this->args[1]->getValue() * $this->args[2]->getValue());
+        $currentFrame->addValueToVariable($this->args[0], $result);
     }
 
     public function idiv()
     {
-        // Doplň implementační logiku pro IDIV
+        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        $currentFrame = $this->frameManager->getCurrentFrame();
+        if (!$currentFrame->isVariableInFrame($this->args[0])) {
+            throw new VariableAccessException('Variable is not initialized');
+        }
+        // Ověření, zda je třetí argument různý od nuly
+        if ($this->args[2]->getValue() === 0) {
+            throw new OperandValueException('Division by zero');
+        }
+        // Celočíselně podělí hodnoty do proměnné v rámci
+        $result = intval($this->args[1]->getValue() / $this->args[2]->getValue());
+        $currentFrame->addValueToVariable($this->args[0], $result);
     }
 
     public function getSpecificMethod()
@@ -507,7 +564,22 @@ class Input extends Instruction
 
     public function read()
     {
-        // Doplň implementační logiku pro READ
+        $currentFrame = $this->frameManager->getCurrentFrame();
+        $var = $currentFrame->getVariable($this->args[0]);
+        // načte hodnotu ze vstupu pomocí třídy reader ze settings
+        $reader = new Settings();
+        $read = $reader->getInputReader();
+        if ($this->args[1] === 'int') {
+            $value = $read->readInt();
+        } elseif ($this->args[1] === 'string') {
+            $value = $read->readString();
+        } elseif ($this->args[1] === 'bool') {
+            $value = $read->readBool();
+        } else {
+            throw new OperandValueException('Invalid type of input');
+        }
+        // uloží hodnotu do proměnné v rámci
+        $var->setValue($value);
     }
 
     public function getSpecificMethod()
@@ -537,11 +609,18 @@ class Output extends Instruction
         if ($this->args[0] instanceof Variable) {
             $currentFrame = $this->frameManager->getCurrentFrame();
             $var = $currentFrame->getVariable($this->args[0]);
-            // Vypíše hodnotu proměnné a přidá konce řádku
-            echo $var->getValue() . PHP_EOL;
+            // Vypíše hodnotu proměnné s doplňujícím parametrem end='' pro výpis bez dalšího odřádkování
+            echo $var->getValue();
         } else {
             // Pokud je argument operand, vypíše jeho hodnotu
-            echo $this->args[0]->getValue();
+            // Pravdivostní hodnota se vypíše jako true a nepravda jako false. Hodnota nil@nil se vypíše jako prázdný řetězec.
+            if ($this->args[0]->getType() === 'bool') {
+                echo $this->args[0]->getValue() ? 'true' : 'false';
+            } elseif ($this->args[0]->getType() === 'nil') {
+                echo '';
+            } else {
+                echo $this->args[0]->getValue();
+            }
         }
     }
 

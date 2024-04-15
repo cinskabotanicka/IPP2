@@ -8,6 +8,7 @@
 namespace IPP\Student;
 
 use Exception;
+use IPP\Student\Exceptions\InvalidSourceStructureException;
 
 // Abstraktní třída pro rámce
 abstract class Frame {
@@ -83,6 +84,14 @@ class TemporaryFrame extends Frame {
         $this->frameVars = [];
         $this->frameName = "TF";
     }
+
+    // Metoda pro přesun proměnných z dočasného rámce do lokálního rámce
+    public function moveVariablesToFrame($frame)
+    {
+        foreach ($this->frameVars as $var) {
+            $frame->addVariable($var);
+        }
+    }
 }
 
 // Třída pro správu rámců
@@ -109,7 +118,7 @@ class FrameManager {
             default:
                 throw new InvalidSourceStructureException("Invalid frame type");
         }
-
+        
         $this->frameStack[] = $frame;
     }
 
@@ -123,5 +132,16 @@ class FrameManager {
     public function getCurrentFrame()
     {
         return end($this->frameStack);
+    }
+
+    public function isFrameInStack($frameName)
+    {
+        foreach ($this->frameStack as $frame) {
+            if ($frame->frameName == $frameName) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

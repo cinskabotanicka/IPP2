@@ -13,6 +13,7 @@ use IPP\Student\Operand;
 use IPP\Student\InstructionFactory;
 use IPP\Student\Instruction;  
 use IPP\Core\ReturnCode;
+use IPP\Student\Exceptions\InvalidSourceStructureException;
 
 class Interpreter extends AbstractInterpreter
 {

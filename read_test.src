@@ -5,7 +5,15 @@
             GF@counter
         </arg1>
     </instruction>
-    <instruction order="2" opcode="ADD">
+    <instruction order="2" opcode="READ">
+        <arg1 type="var">
+            GF@counter
+        </arg1>
+        <arg2 type="type">
+            int
+        </arg2>
+    </instruction>
+    <instruction order="3" opcode="ADD">
         <arg1 type="var">
             GF@counter
         </arg1>
@@ -16,7 +24,7 @@
             2
         </arg3>    
     </instruction>
-    <instruction order="3" opcode="WRITE">
+    <instruction order="4" opcode="WRITE">
         <arg1 type="var">
             GF@counter
         </arg1>
