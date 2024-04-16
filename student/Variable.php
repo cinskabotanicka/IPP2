@@ -69,6 +69,10 @@ class Variable {
         return $this->frame;
     }
 
+    public function getType() {
+        return $this->type;
+    }
+
     public function getName() {
         return $this->name;
     }

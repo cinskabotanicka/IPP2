@@ -5,28 +5,32 @@
             GF@counter
         </arg1>
     </instruction>
-    <instruction order="2" opcode="READ">
-        <arg1 type="var">
-            GF@counter
-        </arg1>
-        <arg2 type="type">
-            int
-        </arg2>
-    </instruction>
-    <instruction order="3" opcode="ADD">
+    <instruction order="3" opcode="MUL">
         <arg1 type="var">
             GF@counter
         </arg1>
         <arg2 type="int">
-            1
+            3
         </arg2>
         <arg3 type="int">
             2
         </arg3>    
     </instruction>
-    <instruction order="4" opcode="WRITE">
+    <instruction order="6" opcode="WRITE">
         <arg1 type="var">
             GF@counter
         </arg1>
-    </instruction>        
+    </instruction>   
+    <instruction order="5" opcode="BREAK">
+    </instruction>
+    <instruction order="4" opcode="LABEL">
+        <arg1 type="label">
+            here
+        </arg1>
+    </instruction>
+    <instruction order="7" opcode="EXIT">
+        <arg1 type="int">
+            8
+        </arg1>
+    </instruction>
 </program>

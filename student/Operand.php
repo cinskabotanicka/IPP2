@@ -19,9 +19,15 @@ class Operand {
         // uloží hodnoty operandu
         try {
             $this->type = $argNode->getAttribute("type");
-            $nodeValue = $argNode->nodeValue;
+            $nodeValue = trim($argNode->nodeValue);
 
             switch ($this->type) {
+                case "type":
+                    // Pokud je typ type, ověří, zda je hodnota typ (int, bool, string, nil, label, type, var )
+                    if ($nodeValue !== "int" && $nodeValue !== "bool" && $nodeValue !== "string" && $nodeValue !== "nil" && $nodeValue !== "label" && $nodeValue !== "type" && $nodeValue !== "var") {
+                        throw new OperandTypeException("Operand type is not valid");
+                    }
+                    break;
                 case "int":
                     // Pokud je typ int, ověří, zda je hodnota celé číslo
                     if (!ctype_digit($nodeValue)) {
@@ -42,6 +48,9 @@ class Operand {
                     if ($nodeValue !== "nil") {
                         throw new OperandValueException("Operand value does not match the type");
                     }
+                    break;
+                case "label":
+                    // Pokud je typ label, nemusí se dělat žádná další kontrola
                     break;
                 default:
                     // Pokud je typ neznámý, vyvolá chybu

@@ -94,14 +94,45 @@ class TemporaryFrame extends Frame {
     }
 }
 
+class DataStack {
+    public $stack;
+
+    public function __construct() {
+        $this->stack = [];
+    }
+
+    public function push($item) {
+        array_push($this->stack, $item);
+    }
+
+    public function pop() {
+        return array_pop($this->stack);
+    }
+
+    // Metoda vracející bool hodnotu, zda je zásobník prázdný
+    public function isEmpty(){
+        return empty($this->stack);
+    }
+}
+
 // Třída pro správu rámců
 class FrameManager {
     public $frameStack = [];
+    public $numberOfInstruction;
+    public $dataStack;
 
     public function __construct() 
     {
         $frameStack[0]= $this->createFrame('GF');
+        $this->numberOfInstruction = 0;
+        $this->dataStack = new DataStack();
     }
+
+    public function getDataStack()
+    {
+        return $this->dataStack;
+    }
+
     // Metoda pro vytvoření nového rámce a umístění na zásobník
     public function createFrame($type)
     {
@@ -144,4 +175,32 @@ class FrameManager {
 
         return false;
     }
+
+    // Metoda pro získání globálního rámce
+    public function getGlobalFrame()
+    {
+        foreach ($this->frameStack as $frame) {
+            if ($frame->frameName == 'GF') {
+                return $frame;
+            }
+        }
+    }
+
+    public function getNumberOfFrames()
+    {
+        return count($this->frameStack);
+    }
+
+    public function executedInstruction()
+    {
+        $this->numberOfInstruction++;
+    }
+
+    public function numberOfExecutedInstructions()
+    {
+        $numberOfInstructions = $this->numberOfInstruction;
+
+        return $numberOfInstructions;
+    }
+
 }
