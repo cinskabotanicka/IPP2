@@ -11,17 +11,29 @@ use IPP\Core\AbstractInterpreter;
 use IPP\Student\Variable;
 use IPP\Student\Operand;
 use IPP\Student\InstructionFactory;
-use IPP\Student\Instruction;  
 use IPP\Core\ReturnCode;
 use IPP\Student\Exceptions\InvalidSourceStructureException;
 use IPP\Student\Exceptions\ValueException;
 
+/**
+ * Třída Interpreter slouží k interpretaci instrukcí z IPPcode24.
+ */
 class Interpreter extends AbstractInterpreter
 {
+    /**
+     * @var array Mapování názvů labelů na pořadí instrukcí
+     */
+    public $labelMap = [];
 
-    public $labelMap = []; // Mapování názvů labelů na pořadí instrukcí
-    public $callStack = []; // Zásobník volání
+    /**
+     * @var array Zásobník volání
+     */
+    public $callStack = [];
 
+    /**
+     * Provede interpretaci instrukcí.
+     * @return int Návratový kód interpretace
+     */
     public function execute(): int
     {
         // Získání instrukcí
@@ -30,11 +42,15 @@ class Interpreter extends AbstractInterpreter
         $sortedInstructions = $this->sortInstructions($instructions);
         // Provedení instrukcí
         $this->executeInstructions($sortedInstructions);
-        // vrátí kód návratu OK
+        // Vrátí kód návratu OK
         return ReturnCode::OK;
     }
 
-    // Metoda pro získání instrukcí
+    /**
+     * Získá instrukce z vstupního XML dokumentu.
+     * @return array Pole objektů Instruction
+     * @throws InvalidSourceStructureException Pokud je struktura vstupního XML neplatná
+     */
     private function getInstructions(): array
     {
         // Získání DOM dokumentu z vstupního XML souboru
@@ -58,9 +74,9 @@ class Interpreter extends AbstractInterpreter
                     continue;
                 }
                 
-                // Získání typu a hodnoty argumentu z atributu 'type' a obsahu uzlu
+                // Získání typu argumentu a jeho hodnoty
+                
                 $argType = $argNode->getAttribute('type');
-                $argValue = $argNode->nodeValue;
                 
                 // Vytvoření instance Operandu a přidání do pole
                 if ($argType == 'var') {
@@ -106,60 +122,76 @@ class Interpreter extends AbstractInterpreter
     // Metoda pro provedení instrukcí
     private function executeInstructions(array $instructions): void
     {
-        foreach ($instructions as $index => $instruction) {
-            // Získání opcode a názvu třídy instrukce
-            $opcode = $instructions[$index]->getOpcode();
-            $className = $instructions[$index]->getClassName($opcode);
-            // Zavolání metody pro provedení instrukce
-            $specificMethod = $instructions[$index]->getSpecificMethod($className);
-            $specificMethod();
+        $index = 0; // Počáteční index instrukce
 
-            // Zpracování instrukce LABEL
-            if ($instruction->getOpcode() == 'LABEL') {
+        // Načtení všech labelů do mapy
+        foreach ($instructions as $instruction) {
+            if ($instruction->getOpcode() === 'label') {
                 $labelName = $instruction->getArgs()[0]->getValue();
                 $this->labelMap[$labelName] = $index;
             }
+            $index++;
+        }
 
+        $index = 0; // Počáteční index instrukce
+    
+        while ($index < count($instructions)) {
+            // Získání aktuální instrukce
+            $instruction = $instructions[$index];
+            
+            // Získání opcode a názvu třídy instrukce
+            $opcode = $instruction->getOpcode();
+            $className = $instruction->getClassName($opcode);
+            
+            // Zavolání metody pro provedení instrukce
+            $specificMethod = $instruction->getSpecificMethod($className);
+            $specificMethod();
+    
+            // Zpracování instrukce LABEL
+            if ($instruction->getOpcode() === 'label') {
+                // Přeskočení instrukce
+                $index++;
+                continue;
+            }
+    
             // Zpracování instrukce JUMP
-            if ($instruction->getOpcode() == 'JUMP') {
+            if ($instruction->getOpcode() === 'jump') {
                 $labelName = $instruction->getArgs()[0]->getValue();
                 if (!isset($this->labelMap[$labelName])) {
                     throw new InvalidSourceStructureException("Label not found");
                 }
                 // Nastavení indexu instrukce, na kterou se má skočit
-                $instructions[$index]->setJumpIndex($this->labelMap[$labelName]);
-                // Změna indexu na index instrukce, na kterou se má skočit
                 $index = $this->labelMap[$labelName];
             }
-
+    
             // Zpracování instrukce JUMPIFEQ
-            if ($instruction->getOpcode() == 'JUMPIFEQ') {
+            if ($instruction->getOpcode() === 'jumpifeq') {
                 $labelName = $instruction->getArgs()[0]->getValue();
                 if (!isset($this->labelMap[$labelName])) {
                     throw new InvalidSourceStructureException("Label not found");
                 }
-                $instructions[$index]->setJumpIndex($this->labelMap[$labelName]);
                 // Pokud je podmínka splněna, změní index na index instrukce, na kterou se má skočit
                 if ($specificMethod()) {
                     $index = $this->labelMap[$labelName];
+                    continue; // Opakuj smyčku s novým indexem
                 }
             }
-
+    
             // Zpracování instrukce JUMPIFNEQ
-            if ($instruction->getOpcode() == 'JUMPIFNEQ') {
+            if ($instruction->getOpcode() === 'jumpifneq') {
                 $labelName = $instruction->getArgs()[0]->getValue();
                 if (!isset($this->labelMap[$labelName])) {
                     throw new InvalidSourceStructureException("Label not found");
                 }
-                $instructions[$index]->setJumpIndex($this->labelMap[$labelName]);
                 // Pokud je podmínka splněna, změní index na index instrukce, na kterou se má skočit
                 if ($specificMethod()) {
                     $index = $this->labelMap[$labelName];
+                    continue; // Opakuj smyčku s novým indexem
                 }
             }
-
+    
             // Zpracování instrukce CALL
-            if ($instruction->getOpcode() == 'CALL') {
+            if ($instruction->getOpcode() === 'call') {
                 $labelName = $instruction->getArgs()[0]->getValue();
                 if (!isset($this->labelMap[$labelName])) {
                     throw new InvalidSourceStructureException("Label not found");
@@ -168,11 +200,12 @@ class Interpreter extends AbstractInterpreter
                 array_push($this->callStack, $index + 1);
                 // Nastavení indexu na index instrukce, na kterou se má skočit
                 $index = $this->labelMap[$labelName];
+                continue; // Opakuj smyčku s novým indexem
             }
-
+    
             // Zpracování instrukce RETURN
-            if ($instruction->getOpcode() == 'RETURN') {
-                // Pokud je zásobník volání prázdný, vyvolá chybu
+            if ($instruction->getOpcode() === 'return') {
+                // Pokud je zásobník volání prázdný, vyvoláme chybu 56
                 if (empty($this->callStack)) {
                     throw new ValueException("Return from empty call stack");
                 }
@@ -180,7 +213,11 @@ class Interpreter extends AbstractInterpreter
                 $returnIndex = array_pop($this->callStack);
                 // Nastavení indexu na pozici uloženou v zásobníku volání
                 $index = $returnIndex;
+                continue; // Opakuj smyčku s novým indexem
             }
+    
+            // Zvýšení indexu pro další instrukci
+            $index++;
         }
     }
 

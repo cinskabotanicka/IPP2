@@ -18,8 +18,11 @@ use IPP\Student\Exceptions\FrameAccessException;
 use IPP\Core\Settings;
 use IPP\Student\Exceptions\StringOperationException;
 use IPP\Student\Exceptions\ValueException;
-use ValueError;
 
+/**
+ * Třída InstructionFactory.
+ * Třída pro vytváření instrukcí.
+ */
 class InstructionFactory
 {
     protected $frameManager;
@@ -97,35 +100,6 @@ trait ArgumentCountChecker
     }
 }
 
-trait ArgumentTypeChecker
-{
-    /**
-     * Zkontroluje, zda je daný argument typu Operand.
-     *
-     * @param mixed $arg Argument k ověření.
-     * @throws \Exception Pokud argument není typu Operand.
-     */
-    protected function checkIsOperand($arg)
-    {
-        if (!$arg instanceof Operand) {
-            return;
-        }
-    }
-
-    /**
-     * Zkontroluje, zda je daný argument typu Variable.
-     *
-     * @param mixed $arg Argument k ověření.
-     * @throws \Exception Pokud argument není typu Variable.
-     */
-    protected function checkIsVariable($arg)
-    {
-        if (!$arg instanceof Variable) {
-            return;
-        }
-    }
-}
-
 abstract class Instruction
 {
     protected $opcode;
@@ -173,7 +147,7 @@ abstract class Instruction
  */
 class FrameOperation extends Instruction
 {
-    use ArgumentCountChecker, ArgumentTypeChecker;
+    use ArgumentCountChecker;
     
     public function __construct($opcode, $args, $order, $frameManager)
     {
@@ -183,6 +157,11 @@ class FrameOperation extends Instruction
 
     private function createFrame()
     {
+        // Zkontroluje, zda je počet argumentů správný
+        if (count($this->args) !== 0) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
         // Zahodí případný původní dočasný rámec
         if ($this->frameManager->getCurrentFrame()->getFrameName() === 'TF'){
             $this->frameManager->popFrame();
@@ -194,6 +173,11 @@ class FrameOperation extends Instruction
 
     private function pushFrame()
     {
+        // Zkontroluje počet argumentů
+        if (count($this->args) !== 0) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
         // Zkontroluje, zda je aktuální rámec TF
         $currentFrame = $this->frameManager->getCurrentFrame();
         if ($currentFrame->getFrameName() !== 'TF') {
@@ -261,7 +245,7 @@ class Label extends Instruction
         }
 
         // Zkontroluje, zda je argument typu label
-        if (!($this->args[0]->getValue() === 'label')) {
+        if (!($this->args[0]->getType() === 'label')) {
             throw new OperandTypeException('Operand must be of type label');
         }
     }
@@ -271,6 +255,10 @@ class Label extends Instruction
         // Zkontroluje počet argumentů
         if (count($this->args) !== 1) {
             throw new SemanticException('Invalid number of arguments');
+        }
+        // Zkontroluje, zda je argument typu label
+        if (!($this->args[0]->getType() === 'label')) {
+            throw new OperandTypeException('Operand must be of type label');
         }
     }
 
@@ -333,7 +321,11 @@ class Operation extends Instruction
 
     public function return()
     {
-        // Doplň implementační logiku pro RETURN
+        // Zkontroluje, zda je počet argumentů správný
+        if (count($this->args) !== 0) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
     }
 
     public function concat()
@@ -355,13 +347,35 @@ class Operation extends Instruction
             throw new OperandTypeException('First argument must be variable');
         }
 
-        // Zkontroluje, zda jsou druhý a třetí argument typu string
-        if ($symb1->getType() !== 'string' || $symb2->getType() !== 'string') {
-            throw new OperandTypeException('Second and third arguments must be strings');
+        // Zkontroluje, zda jsou druhý a třetí argument typu string, nebo jsou to proměnné typu string
+        if ($symb1->getType() !== 'string' && $symb1->getType() !== 'var') {
+            throw new OperandTypeException('Second argument must be string or variable');
+        }
+        if ($symb2->getType() !== 'string' && $symb2->getType() !== 'var') {
+            throw new OperandTypeException('Third argument must be string or variable');
+        }
+        // Zkontroluje, zda je proměnná z druhého argumentu inicializovaná v aktuálním rámci nebo v globálním rámci 
+        if ($symb1->getType() === 'var' && !$currentFrame->isVariableInFrame($symb1) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb1)) {
+            throw new VariableAccessException('Variable is not initialized');
+        }
+        // Uloží do proměnné $frame
+        if ($symb1->getType() === 'var') {
+            $frame1 = $currentFrame->isVariableInFrame($symb1) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        }
+        // Zkontroluje, zda je proměnná z třetího argumentu inicializovaná v aktuálním rámci nebo v globálním rámci
+        if ($symb2->getType() === 'var' && !$currentFrame->isVariableInFrame($symb2) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb2)) {
+            throw new VariableAccessException('Variable is not initialized');
+        }
+        // Uloží do proměnné $frame
+        if ($symb2->getType() === 'var') {
+            $frame2 = $currentFrame->isVariableInFrame($symb2) ? $currentFrame : $this->frameManager->getGlobalFrame();
         }
 
+        // Získání hodnot operandů
+        $value1 = $symb1->getType() === 'var' ? $frame1->getVariable($symb1)->getValue() : $symb1->getValue();
+        $value2 = $symb2->getType() === 'var' ? $frame2->getVariable($symb2)->getValue() : $symb2->getValue();
         // Provede konkatenaci dvou řetězců a uloží do proměnné
-        $concatenatedString = $symb1->getValue() . $symb2->getValue();
+        $concatenatedString = $value1 . $value2;
         $frame->addValueToVariable($var, $concatenatedString);
     }
 
@@ -942,13 +956,24 @@ class TypeConversion extends Instruction
             throw new OperandTypeException('First argument must be variable');
         }
 
-        // Zkontroluje, zda je druhý argument integer  
-        if ($symb->getType() !== 'int') {
-            throw new OperandTypeException('Second argument must be integer');
+        // Zkontroluje, zda je druhý argument integer nebo proměnná
+        // Získá hodnotu ze zdroje (operandu nebo proměnné)
+        if ($symb instanceof Operand) {
+            $value = $symb->getValue();
+        } elseif ($symb instanceof Variable) {
+            // Zkontroluje, zda je proměnná inicializovaná
+            if (!$frame->isVariableInFrame($symb) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb)) {
+                throw new VariableAccessException('Variable is not initialized');
+            }
+            // zjisit, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame2
+            $frame = $frame->isVariableInFrame($symb) ? $frame : $this->frameManager->getGlobalFrame();
+            $value = $frame->getVariable($symb)->getValue();
+        } else {
+            throw new OperandTypeException('Second argument must be operand or variable');
         }
 
         // Převede hodnotu integer na string
-        $char = mb_chr($symb->getValue(), 'UTF-8');
+        $char = mb_chr($value, 'UTF-8');
 
         // Zkontroluje, zda je hodnota platná
         if ($char === false) {
@@ -1098,21 +1123,21 @@ class Output extends Instruction
         switch ($symb->getType()) {
             case 'var':
                 // Přečte hodnotu proměnné a vypíše ji i s novým řádkem 
-                $write->writeString($value . PHP_EOL);
+                $write->writeString($value);
                 break;
             case 'int':
-                $write->writeInt($value . PHP_EOL);
+                $write->writeInt($value);
                 break;
             case 'string':
-                $write->writeString($value . PHP_EOL);
+                $write->writeString($value);
                 break;
             case 'bool':
                 // Převede hodnotu bool na string a vypíše
-                $write->writeString($value ? 'true' : 'false' . PHP_EOL);
+                $write->writeString($value ? 'true' : 'false');
                 break;
             case 'nil':
                 // Pro hodnotu nil vypíše prázdný řetězec
-                $write->writeString('' . PHP_EOL);
+                $write->writeString('');
                 break;
             default:
                 throw new OperandValueException('Invalid type of output');
@@ -1219,7 +1244,7 @@ class Debug extends Instruction
  */
 class VariableOperation extends Instruction
 {
-    use ArgumentCountChecker, ArgumentTypeChecker;
+    use ArgumentCountChecker;
 
     public function __construct($opcode, $args, $order, $frameManager)
     {
@@ -1351,7 +1376,7 @@ class VariableOperation extends Instruction
  */
 class ConditionalJump extends Instruction
 {
-    use ArgumentCountChecker, ArgumentTypeChecker;
+    use ArgumentCountChecker;
 
     public function __construct($opcode, $args, $order, $frameManager)
     {

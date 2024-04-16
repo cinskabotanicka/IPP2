@@ -7,13 +7,17 @@
 
 namespace IPP\Student;
 
-use Exception;
 use IPP\Student\Exceptions\InvalidSourceStructureException;
 
 // Abstraktní třída pro rámce
 abstract class Frame {
     protected $frameVars = [];
     protected $frameName;
+
+    public function getFrameName()
+    {
+        return $this->frameName;
+    }
 
     // Metoda pro přidání proměnné do rámce
     public function addVariable($var)
@@ -168,7 +172,7 @@ class FrameManager {
     public function isFrameInStack($frameName)
     {
         foreach ($this->frameStack as $frame) {
-            if ($frame->frameName == $frameName) {
+            if ($frame->getFrameName() == $frameName) {
                 return true;
             }
         }
@@ -180,7 +184,7 @@ class FrameManager {
     public function getGlobalFrame()
     {
         foreach ($this->frameStack as $frame) {
-            if ($frame->frameName == 'GF') {
+            if ($frame->getFrameName() == 'GF') {
                 return $frame;
             }
         }

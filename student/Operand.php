@@ -9,6 +9,7 @@ namespace IPP\Student;
 use Exception;
 use IPP\Student\Exceptions\OperandValueException;
 use IPP\Student\Exceptions\OperandTypeException;
+use IPP\Student\Exceptions\StringOperationException;
 
 // Třída pro operand
 class Operand {    
@@ -40,8 +41,35 @@ class Operand {
                         throw new OperandValueException("Operand value does not match the type");
                     }
                     break;
-                case "string":
-                    // Pokud je typ string, nemusí se dělat žádná další kontrola
+                case "string":                    // Zpracování řetězců s escape sekvencemi
+                    $processedValue = '';
+                    $length = strlen($nodeValue);
+                    $i = 0;
+                    while ($i < $length) {
+                        $char = $nodeValue[$i];
+                        if ($char === '\\') {
+                            // Ošetření escape sekvence
+                            if ($i + 4 <= $length && $nodeValue[$i + 1] === '0' && $nodeValue[$i + 2] === '3' && $nodeValue[$i + 3] === '2') {
+                                // Dekóduje escape sekvenci pro mezeru
+                                $processedValue .= ' ';
+                                $i += 4;
+                            } elseif ($i + 1 < $length && is_numeric($nodeValue[$i + 1]) && is_numeric($nodeValue[$i + 2]) && is_numeric($nodeValue[$i + 3])) {
+                                // Převede escape sekvenci na ASCII hodnotu
+                                $ascii = (int) substr($nodeValue, $i + 1, 3);
+                                $processedValue .= chr($ascii);
+                                $i += 4; // Přeskočíme escape sekvenci
+                            } else {
+                                // Neplatná escape sekvence
+                                throw new StringOperationException("Invalid escape sequence at position $i");
+                            }
+                        } else {
+                            // Regulerní písmeno
+                            $processedValue .= $char;
+                            $i++;
+                        }
+                    }
+            
+                    $nodeValue = $processedValue;
                     break;
                 case "nil":
                     // Pokud je typ nil, ověří, zda je hodnota "nil"
