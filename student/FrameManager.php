@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Soubor pro třídu FrameManager, Frame a jejich potomky.
  * @author xhroma15
@@ -10,7 +11,8 @@ namespace IPP\Student;
 use IPP\Student\Exceptions\InvalidSourceStructureException;
 
 // Abstraktní třída pro rámce
-abstract class Frame {
+abstract class Frame
+{
     protected $frameVars = [];
     protected $frameName;
 
@@ -26,12 +28,12 @@ abstract class Frame {
     }
 
     // Metoda pro získání proměnných v rámci
-    public function getVariables()
+    public function getVariables(): array
     {
         return $this->frameVars;
     }
 
-    public function getVariable($varName)
+    public function getVariable($varName): Variable | null
     {
         foreach ($this->frameVars as $var) {
             if ($var->getName() == $varName->getName()) {
@@ -53,19 +55,20 @@ abstract class Frame {
         return false;
     }
 
-    public function addValueToVariable($var, $value)
+    public function addValueToVariable($var, $value, $type)
     {
         foreach ($this->frameVars as $frameVar) {
             if ($frameVar->getName() == $var->getName()) {
-                $frameVar->setValue($value);
+                $frameVar->setValue($value, $type);
             }
         }
     }
 }
 
 // Třída reprezentující globální rámec (GF)
-class GlobalFrame extends Frame {
-    public function __construct() 
+class GlobalFrame extends Frame
+{
+    public function __construct()
     {
         $this->frameVars = [];
         $this->frameName = "GF";
@@ -73,8 +76,9 @@ class GlobalFrame extends Frame {
 }
 
 // Třída reprezentující lokální rámec (LF)
-class LocalFrame extends Frame {
-    public function __construct() 
+class LocalFrame extends Frame
+{
+    public function __construct()
     {
         $this->frameVars = [];
         $this->frameName = "LF";
@@ -82,8 +86,9 @@ class LocalFrame extends Frame {
 }
 
 // Třída reprezentující dočasný rámec (TF)
-class TemporaryFrame extends Frame {
-    public function __construct() 
+class TemporaryFrame extends Frame
+{
+    public function __construct()
     {
         $this->frameVars = [];
         $this->frameName = "TF";
@@ -98,36 +103,42 @@ class TemporaryFrame extends Frame {
     }
 }
 
-class DataStack {
+class DataStack
+{
     public $stack;
 
-    public function __construct() {
+    public function __construct()
+    {
         $this->stack = [];
     }
 
-    public function push($item) {
+    public function push($item)
+    {
         array_push($this->stack, $item);
     }
 
-    public function pop() {
+    public function pop()
+    {
         return array_pop($this->stack);
     }
 
     // Metoda vracející bool hodnotu, zda je zásobník prázdný
-    public function isEmpty(){
+    public function isEmpty()
+    {
         return empty($this->stack);
     }
 }
 
 // Třída pro správu rámců
-class FrameManager {
+class FrameManager
+{
     public $frameStack = [];
     public $numberOfInstruction;
     public $dataStack;
 
-    public function __construct() 
+    public function __construct()
     {
-        $frameStack[0]= $this->createFrame('GF');
+        $frameStack[0] = $this->createFrame('GF');
         $this->numberOfInstruction = 0;
         $this->dataStack = new DataStack();
     }
@@ -153,7 +164,7 @@ class FrameManager {
             default:
                 throw new InvalidSourceStructureException("Invalid frame type");
         }
-        
+
         $this->frameStack[] = $frame;
     }
 
@@ -206,5 +217,4 @@ class FrameManager {
 
         return $numberOfInstructions;
     }
-
 }

@@ -1,9 +1,11 @@
 <?php
+
 /**
  * Soubor pro třídu Operand.
  * @author xhroma15
  * 
  */
+
 namespace IPP\Student;
 
 use Exception;
@@ -12,11 +14,13 @@ use IPP\Student\Exceptions\OperandTypeException;
 use IPP\Student\Exceptions\StringOperationException;
 
 // Třída pro operand
-class Operand {    
+class Operand
+{
     protected $type;
     protected $value;
 
-    public function __construct($argNode) {
+    public function __construct($argNode)
+    {
         // uloží hodnoty operandu
         try {
             $this->type = $argNode->getAttribute("type");
@@ -68,7 +72,7 @@ class Operand {
                             $i++;
                         }
                     }
-            
+
                     $nodeValue = $processedValue;
                     break;
                 case "nil":
@@ -87,17 +91,18 @@ class Operand {
 
             // Uloží hodnotu operandu
             $this->value = $nodeValue;
-        }
-        catch (Exception $e) {
+        } catch (Exception $e) {
             throw new OperandValueException("Operand value does not match the type");
         }
     }
 
-    public function getValue() {
+    public function getValue()
+    {
         return $this->value;
     }
 
-    public function getType() {
+    public function getType()
+    {
         return $this->type;
     }
 }

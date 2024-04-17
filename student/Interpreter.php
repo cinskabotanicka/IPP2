@@ -46,6 +46,15 @@ class Interpreter extends AbstractInterpreter
         return ReturnCode::OK;
     }
 
+
+    public function getAttribute($element, $attributeName) {
+        if ($element->hasAttribute($attributeName)) {
+            return $element->getAttribute($attributeName);
+        } else {
+            return null; // or handle the case where the attribute is not found
+        }
+    }
+
     /**
      * Získá instrukce z vstupního XML dokumentu.
      * @return array Pole objektů Instruction
@@ -76,7 +85,7 @@ class Interpreter extends AbstractInterpreter
                 
                 // Získání typu argumentu a jeho hodnoty
                 
-                $argType = $argNode->getAttribute('type');
+                $argType = $this->getAttribute($argNode, 'type');
                 
                 // Vytvoření instance Operandu a přidání do pole
                 if ($argType == 'var') {

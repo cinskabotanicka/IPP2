@@ -30,8 +30,8 @@ class InstructionFactory
     public function __construct()
     {
         $this->frameManager = new FrameManager();
-    }   
-    
+    }
+
     public static $classMap = [
         'move' => VariableOperation::class, // MOVE ⟨var⟩ ⟨symb⟩
         'createframe' => FrameOperation::class, // CREATEFRAME
@@ -81,7 +81,6 @@ class InstructionFactory
             throw new SemanticException('Unknown opcode');
         }
     }
-
 }
 
 trait ArgumentCountChecker
@@ -113,7 +112,7 @@ abstract class Instruction
         $this->args = $args;
         $this->order = $order;
         $this->frameManager = $frameManager;
-        $this->frameManager->executedInstruction();      
+        $this->frameManager->executedInstruction();
     }
 
     public function getOpcode()
@@ -140,6 +139,35 @@ abstract class Instruction
         return $this->order;
     }
 
+    public function compareTwoValues($value1, $value2)
+    {
+        if (gettype($value1) !== gettype($value2)) {
+            throw new OperandTypeException('Operands must be of the same type');
+        }
+    }
+
+    public function getSymbValue($symb, array $types)
+    {
+        $frame1 = null;
+        if ($symb->getType() === 'var') {
+            $frame = $this->frameManager->getCurrentFrame();
+            if (!$frame->isVariableInFrame($symb) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb)) {
+                throw new VariableAccessException('Variable is not initialized');
+            }
+            $frame1 = $frame->isVariableInFrame($symb) ? $frame : $this->frameManager->getGlobalFrame();
+            $value = $frame1->getVariable($symb)->getValue();
+            if (!in_array($frame1->getVariable($symb)->getValueType(), $types)) {
+                throw new OperandTypeException('Operand must be of specified type');
+            }
+        } else {
+            if (!in_array(gettype($symb->getValue()), $types)) {
+                throw new OperandTypeException('Operand must be of specified type');
+            }
+            $value = $symb->getValue();
+        }
+
+        return [$value, $frame1];
+    }
 }
 
 /**
@@ -148,11 +176,11 @@ abstract class Instruction
 class FrameOperation extends Instruction
 {
     use ArgumentCountChecker;
-    
+
     public function __construct($opcode, $args, $order, $frameManager)
     {
         $this->checkArgumentCount($this->args, 0);
-        parent::__construct($opcode, $args, $order, $frameManager); 
+        parent::__construct($opcode, $args, $order, $frameManager);
     }
 
     private function createFrame()
@@ -163,7 +191,7 @@ class FrameOperation extends Instruction
         }
 
         // Zahodí případný původní dočasný rámec
-        if ($this->frameManager->getCurrentFrame()->getFrameName() === 'TF'){
+        if ($this->frameManager->getCurrentFrame()->getFrameName() === 'TF') {
             $this->frameManager->popFrame();
         }
 
@@ -192,6 +220,11 @@ class FrameOperation extends Instruction
 
     private function popFrame()
     {
+        // Zkontroluje počet argumentů
+        if (count($this->args) !== 0) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
         // Zkontroluje, zda je aktuální rámec LF
         $currentFrame = $this->frameManager->getCurrentFrame();
         if ($currentFrame->getFrameName() !== 'LF') {
@@ -201,10 +234,9 @@ class FrameOperation extends Instruction
         $this->frameManager->popFrame();
         $this->frameManager->createFrame('TF');
         $currentFrame->moveVariablesToFrame($this->frameManager->getCurrentFrame());
-        
     }
 
-    public function getSpecificMethod() 
+    public function getSpecificMethod()
     {
         switch ($this->opcode) {
             case 'createframe':
@@ -234,6 +266,10 @@ class Label extends Instruction
         // Zkontroluje počet argumentů
         if (count($this->args) !== 1) {
             throw new SemanticException('Invalid number of arguments');
+        }
+        // Zkontroluje, zda je argument typu label
+        if (!($this->args[0]->getType() === 'label')) {
+            throw new OperandTypeException('Operand must be of type label');
         }
     }
 
@@ -271,17 +307,22 @@ class Label extends Instruction
             throw new SemanticException('Invalid number of arguments');
         }
 
-        // Kontrola typu argumentu
-        if (!($symb instanceof Operand)) {
-            throw new OperandTypeException('Operand must be of type');
+        // Kontrola typu argumentu, musí být typu int nebo proměnná typu int
+        if ($symb instanceof Operand && $symb->getType() === 'int') {
+            $value = $symb->getValue();
+        } elseif ($symb instanceof Variable && $symb->getType() === 'int') {
+            // Zkontroluje, zda je proměnná inicializovaná
+            $source = $symb;
+            $frame = $this->frameManager->getCurrentFrame();
+            if (!$frame->isVariableInFrame($source) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($source)) {
+                throw new VariableAccessException('Variable is not initialized');
+            }
+            // zjisit, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame1
+            $frame1 = $frame->isVariableInFrame($source) ? $frame : $this->frameManager->getGlobalFrame();
+            $value = $frame1->getVariable($source)->getValue();
+        } else {
+            throw new OperandTypeException('Second argument must be operand or variable and must be of type int');
         }
-        // Zkontroluje, zda je v operandu celočíselná hodnota
-        if ($symb->getType() !== 'int') {
-            throw new OperandValueException('Operand must be integer');
-        }
-
-        // Získá hodnotu operandu
-        $value = $symb->getValue();
 
         // Zkontroluje, zda je hodnota v intervalu 0 až 9
         if ($value < 0 || $value > 9) {
@@ -325,7 +366,6 @@ class Operation extends Instruction
         if (count($this->args) !== 0) {
             throw new SemanticException('Invalid number of arguments');
         }
-
     }
 
     public function concat()
@@ -346,43 +386,24 @@ class Operation extends Instruction
         if (!($var instanceof Variable)) {
             throw new OperandTypeException('First argument must be variable');
         }
+        // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
+        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($this->args[0]);
 
-        // Zkontroluje, zda jsou druhý a třetí argument typu string, nebo jsou to proměnné typu string
-        if ($symb1->getType() !== 'string' && $symb1->getType() !== 'var') {
-            throw new OperandTypeException('Second argument must be string or variable');
-        }
-        if ($symb2->getType() !== 'string' && $symb2->getType() !== 'var') {
-            throw new OperandTypeException('Third argument must be string or variable');
-        }
-        // Zkontroluje, zda je proměnná z druhého argumentu inicializovaná v aktuálním rámci nebo v globálním rámci 
-        if ($symb1->getType() === 'var' && !$currentFrame->isVariableInFrame($symb1) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb1)) {
-            throw new VariableAccessException('Variable is not initialized');
-        }
-        // Uloží do proměnné $frame
-        if ($symb1->getType() === 'var') {
-            $frame1 = $currentFrame->isVariableInFrame($symb1) ? $currentFrame : $this->frameManager->getGlobalFrame();
-        }
-        // Zkontroluje, zda je proměnná z třetího argumentu inicializovaná v aktuálním rámci nebo v globálním rámci
-        if ($symb2->getType() === 'var' && !$currentFrame->isVariableInFrame($symb2) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb2)) {
-            throw new VariableAccessException('Variable is not initialized');
-        }
-        // Uloží do proměnné $frame
-        if ($symb2->getType() === 'var') {
-            $frame2 = $currentFrame->isVariableInFrame($symb2) ? $currentFrame : $this->frameManager->getGlobalFrame();
-        }
+        $valueAndFrame = $this->getSymbValue($symb1, ['string']);
+        $value1 = $valueAndFrame[0];
 
-        // Získání hodnot operandů
-        $value1 = $symb1->getType() === 'var' ? $frame1->getVariable($symb1)->getValue() : $symb1->getValue();
-        $value2 = $symb2->getType() === 'var' ? $frame2->getVariable($symb2)->getValue() : $symb2->getValue();
-        // Provede konkatenaci dvou řetězců a uloží do proměnné
+        $valueAndFrame = $this->getSymbValue($symb2, ['string']);
+        $value2 = $valueAndFrame[0];
+
         $concatenatedString = $value1 . $value2;
-        $frame->addValueToVariable($var, $concatenatedString);
+        $frame->addValueToVariable($variable, $concatenatedString, "string");
     }
 
     public function strlen()
     {
         $var = $this->args[0];
-        $symb = $this->args[1];
+        $symb1 = $this->args[1];
 
         // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
@@ -396,16 +417,14 @@ class Operation extends Instruction
         if (!($var instanceof Variable)) {
             throw new OperandTypeException('First argument must be variable');
         }
+        $variable = $frame->getVariable($var);
 
-        // Zkontroluje, zda je druhý argument typu string
-        if ($symb->getType() !== 'string') {
-            throw new OperandTypeException('Second argument must be string');
-        }
+        $valueAndFrame = $this->getSymbValue($symb1, ['string']);
+        $value1 = $valueAndFrame[0];
 
-        // Získání délky řetězce a uložení do proměnné
-        $stringLength = mb_strlen($symb->getValue(), 'UTF-8');
-        $frame->addValueToVariable($var, $stringLength);
-    }   
+        $stringLength = mb_strlen($value1, 'UTF-8');
+        $frame->addValueToVariable($variable, $stringLength, "int");
+    }
 
     public function getchar()
     {
@@ -430,14 +449,13 @@ class Operation extends Instruction
             throw new OperandTypeException('First argument must be variable');
         }
 
-        // Zkontroluje, zda jsou druhý a třetí argument typu string a integer
-        if ($symb1->getType() !== 'string' || $symb2->getType() !== 'int') {
-            throw new OperandTypeException('Second argument must be string, third argument must be integer');
-        }
+        $variable = $frame->getVariable($this->args[0]);
 
-        // Nastavení proměnných pro získání znaku
-        $string = $symb1->getValue();
-        $index = $symb2->getValue();
+        $valueAndFrame = $this->getSymbValue($symb1, ['string']);
+        $string = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['int']);
+        $index = $valueAndFrame[0];
 
         // Zkontroluje, zda je index v rozsahu řetězce
         if ($index < 0 || $index >= mb_strlen($string, 'UTF-8')) {
@@ -446,7 +464,7 @@ class Operation extends Instruction
 
         // Získání znaku na daném indexu a uložení do proměnné
         $character = mb_substr($string, $index, 1, 'UTF-8');
-        $frame->addValueToVariable($var, $character);
+        $frame->addValueToVariable($variable, $character, 'string');
     }
 
     public function setchar()
@@ -459,7 +477,7 @@ class Operation extends Instruction
         $var = $this->args[0];
         $symb1 = $this->args[1];
         $symb2 = $this->args[2];
-    
+
         // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($var) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($var)) {
@@ -467,21 +485,20 @@ class Operation extends Instruction
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
         $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
-    
+
         // Zkontroluje, zda je první argument proměnná
         if (!($var instanceof Variable)) {
             throw new OperandTypeException('First argument must be variable');
         }
-    
-        // Zkontroluje, zda jsou druhý a třetí argument typu integer a string
-        if ($symb1->getType() !== 'int' || $symb2->getType() !== 'string') {
-            throw new OperandTypeException('Second argument must be integer, third argument must be string');
-        }
-    
-        // Získání indexu a řetězce pro nahrazení
-        $index = $symb1->getValue();
-        $string = $symb2->getValue();
-    
+
+        $variable = $frame->getVariable($this->args[0]);
+
+        $valueAndFrame = $this->getSymbValue($symb1, ['int']);
+        $index = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['string']);
+        $string = $valueAndFrame[0];
+
         // Zkontroluje, zda je hodnota proměnné nastavena a je typu string
         if ($var->getValue() === null || !is_string($var->getValue())) {
             throw new OperandTypeException('Variable must be initialized with a string value');
@@ -492,19 +509,19 @@ class Operation extends Instruction
         if ($varString === null || $index < 0 || $index >= mb_strlen($varString, 'UTF-8')) {
             throw new StringOperationException('Index out of bounds');
         }
-    
+
         // Získání prvního znaku z řetězce
         $replacementChar = mb_substr($string, 0, 1, 'UTF-8');
-    
+
         // Upravení řetězce a uložení do proměnné v rámci
         $newString = mb_substr($varString, 0, $index, 'UTF-8') . $replacementChar . mb_substr($varString, $index + 1, null, 'UTF-8');
-        $frame->addValueToVariable($var, $newString);
+        $frame->addValueToVariable($variable, $newString, 'string');
     }
 
     public function type()
     {
         $var = $this->args[0];
-        $symb = $this->args[1];
+        $symb1 = $this->args[1];
 
         //Zkontroluje, zda je počet argumentů správný
         if (count($this->args) !== 2) {
@@ -516,11 +533,6 @@ class Operation extends Instruction
             throw new OperandTypeException('First argument must be variable');
         }
 
-        // Zkontroluje, zda je druhý argument typu operand
-        if (!($symb instanceof Operand)) {
-            throw new OperandTypeException('Second argument must be operand');
-        }
-
         // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci nebo v globálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($var) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($var)) {
@@ -529,9 +541,21 @@ class Operation extends Instruction
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
         $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
 
-        // Získá typ symbolu a uloží do proměnné
-        $type = $symb->getType();
-        
+        if ($symb1 instanceof Operand) {
+            $type = $symb1->getType();
+        } else {
+            $type = $symb1->getValueType();
+        }
+
+        // POkud je druhý argument proměnná, zkontroluje, zda je inicializovaná
+        if ($symb1->getType() === 'var' && !$currentFrame->isVariableInFrame($symb1) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb1)) {
+            $type = 'nil';
+        }
+        // Jinak kontroluje, zda je inicializovaná a získá typ symbolu
+
+        $variable = $frame->getVariable($this->args[0]);
+
+
         // Pokud je symbol neinicializovaná proměnná, uloží prázdný řetězec
         if ($type === null) {
             $typeString = '';
@@ -556,7 +580,7 @@ class Operation extends Instruction
         }
 
         // Uloží typ symbolu do proměnné
-        $frame->addValueToVariable($var, $typeString);
+        $frame->addValueToVariable($variable, $typeString, $typeString);
     }
 
     public function getSpecificMethod()
@@ -597,18 +621,19 @@ class Arithmetic extends Instruction
         if (!($args[0] instanceof Variable)) {
             throw new OperandTypeException('First argument must be variable');
         }
-
-        // Zkontroluje, zda je druhý a třetí argument integer
-        if (!($args[1] instanceof Operand) || $args[1]->getType() !== 'int') {
-            throw new OperandTypeException('Second argument must be integer');
-        }
-        if (!($args[2] instanceof Operand) || $args[2]->getType() !== 'int') {
-            throw new OperandTypeException('Third argument must be integer');
-        }
     }
 
     public function add()
     {
+        // Zkontroluje počet argumentů
+        if (count($this->args) !== 3) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
+        // Zkontroluje, zda je první argument proměnná
+        if (!($this->args[0] instanceof Variable)) {
+            throw new OperandTypeException('First argument must be variable');
+        }
         // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
@@ -616,59 +641,118 @@ class Arithmetic extends Instruction
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
         $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($this->args[0]);
+
+        $valueAndFrame = $this->getSymbValue($this->args[1], ['int']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($this->args[2], ['int']);
+        $value2 = $valueAndFrame[0];
 
         // Přičtení hodnot do proměnné v rámci
-        $result = ($this->args[1]->getValue() + $this->args[2]->getValue());
-        $frame->addValueToVariable($this->args[0], $result);
+        $result = ($value1 + $value2);
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, "int");
+        }
     }
 
     public function sub()
     {
-        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        // Zkontroluje počet argumentů
+        if (count($this->args) !== 3) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
+        // Zkontroluje, zda je první argument proměnná
+        if (!($this->args[0] instanceof Variable)) {
+            throw new OperandTypeException('First argument must be variable');
+        }
+        // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[1]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($this->args[0]);
 
-        // Odečtení hodnot do proměnné v rámci
-        $result = ($this->args[1]->getValue() - $this->args[2]->getValue());    
-        $frame->addValueToVariable($this->args[0], $result);
+        $valueAndFrame = $this->getSymbValue($this->args[1], ['int']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($this->args[2], ['int']);
+        $value2 = $valueAndFrame[0];
+
+        // Přičtení hodnot do proměnné v rámci
+        $result = ($value1 - $value2);
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, "int");
+        }
     }
 
     public function mul()
     {
-        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        // Zkontroluje počet argumentů
+        if (count($this->args) !== 3) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
+        // Zkontroluje, zda je první argument proměnná
+        if (!($this->args[0] instanceof Variable)) {
+            throw new OperandTypeException('First argument must be variable');
+        }
+        // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
         $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($this->args[0]);
 
-        // Vynásobení hodnot do proměnné v rámci
-        $result = ($this->args[1]->getValue() * $this->args[2]->getValue());
-        $frame->addValueToVariable($this->args[0], $result);
+        $valueAndFrame = $this->getSymbValue($this->args[1], ['int']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($this->args[2], ['int']);
+        $value2 = $valueAndFrame[0];
+
+        // Přičtení hodnot do proměnné v rámci
+        $result = ($value1 * $value2);
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, "int");
+        }
     }
 
     public function idiv()
     {
-        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        // Zkontroluje počet argumentů
+        if (count($this->args) !== 3) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
+        // Zkontroluje, zda je první argument proměnná
+        if (!($this->args[0] instanceof Variable)) {
+            throw new OperandTypeException('First argument must be variable');
+        }
+        // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
         $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($this->args[0]);
 
-        // Ověření, zda je třetí argument různý od nuly
-        if ($this->args[2]->getValue() === 0) {
-            throw new OperandValueException('Division by zero');
+        $valueAndFrame = $this->getSymbValue($this->args[1], ['int']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($this->args[2], ['int']);
+        $value2 = $valueAndFrame[0];
+
+        // Přičtení hodnot do proměnné v rámci
+        $result = intdiv($value1, $value2);
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, "int");
         }
-        // Celočíselně podělí hodnoty do proměnné v rámci
-        $result = intval($this->args[1]->getValue() / $this->args[2]->getValue());
-        $frame->addValueToVariable($this->args[0], $result);
     }
 
     public function getSpecificMethod()
@@ -696,56 +780,74 @@ class Comparison extends Instruction
     public function __construct($opcode, $args, $order, $frameManager)
     {
         parent::__construct($opcode, $args, $order, $frameManager);
-
-        // Zkontroluje, zda je počet argumentů správný
-        if (count($args) !== 3) {
-            throw new SemanticException('Invalid number of arguments');
-        }
-
-        // Zkontroluje, zda je první argument proměnná
-        if (!($args[0] instanceof Variable)) {
-            throw new OperandTypeException('First argument must be variable');
-        }
-
-        // Zkontroluje, zda je druhý a třetí argument , bool nebo string
-
-        if (!($args[1] instanceof Operand) || (($args[1]->getType() === 'int') || ($args[1]->getType() === 'bool') || ($args[1]->getType() === 'string'))) {
-            throw new OperandTypeException('Second argument must be integer');
-        }
-        if (!($args[2] instanceof Operand) || $args[2]->getType() !== 'int') {
-            throw new OperandTypeException('Third argument must be integer');
-        }
     }
 
     public function lt()
     {
-        $var = $this->args[0]; 
+        $var = $this->args[0];
         $symb1 = $this->args[1];
         $symb2 = $this->args[2];
 
-        // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+        // Zkontroluje, zda je počet argumentů správný
+        if (count($this->args) !== 3) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
+        // Zkontroluje, zda je první argument proměnná
+        if (!($this->args[0] instanceof Variable)) {
+            throw new OperandTypeException('First argument must be variable');
+        }
+
+        // Zkontroluje, zda je druhý a třetí argument operand s hodnotou bool nebo string, nebo inicializovaná proměnná s hodnotou bool nebo string
+        if (($this->args[1] instanceof Operand) && ($symb1->getType() !== 'bool' && $symb1->getType() !== 'string' && $symb1->getType() !== 'int')) {
+            throw new OperandTypeException('Second argument must be bool or string');
+        }
         $currentFrame = $this->frameManager->getCurrentFrame();
-        if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
+        if (!$currentFrame->isVariableInFrame($var) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($var)) {
             throw new VariableAccessException('Variable is not initialized');
         }
-        // Zjištění, zda je proměnná v aktuálním rámci nebo v globálním rámci a uložení do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
+        $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($var);
 
-        // Porovnání hodnot a uložení výsledku do proměnné
-        if ($symb1->getType() === 'int' && $symb2->getType() === 'int') {
-            $result = intval($symb1->getValue()) < intval($symb2->getValue());
-        } elseif ($symb1->getType() === 'string' && $symb2->getType() === 'string') {
-            $result = strcasecmp($symb1->getValue(), $symb2->getValue()) < 0;
+        $valueAndFrame = $this->getSymbValue($symb1, ['int', 'bool', 'string']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['int', 'bool', 'string']);
+        $value2 = $valueAndFrame[0];
+
+        if ($symb1 instanceof Operand) {
+            $type1 = $symb1->getType();
+        } else {
+            $type1 = $symb1->getValueType();
+        }
+
+        if ($symb2 instanceof Operand) {
+            $type2 = $symb2->getType();
+        } else {
+            $type2 = $symb2->getValueType();
+        }
+
+        if ($type1 === 'int' && $type2 === 'int') {
+            $result = intval($value1) < intval($value2);
+        } elseif ($type1 === 'string' && $type2 === 'string') {
+            $result = strcasecmp($value1, $value2) < 0;
+        } elseif ($type1 === 'bool' && $type2 === 'bool') {
+            $result = $value1 < $value2;
+        } elseif ($type1 === 'var' && $type2 === 'var') {
+            $result = $value1 < $value2;
         } else {
             throw new OperandTypeException('LT operation supports only int, bool or string operands.');
         }
 
-        $frame->addValueToVariable($var, $result);
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, $type1);
+        }
     }
 
     public function gt()
     {
-        $var = $this->args[0]; 
+        $var = $this->args[0];
         $symb1 = $this->args[1];
         $symb2 = $this->args[2];
 
@@ -755,23 +857,47 @@ class Comparison extends Instruction
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjištění, zda je proměnná v aktuálním rámci nebo v globálním rámci a uložení do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($var);
 
-        // Porovnání hodnot a uložení výsledku do proměnné
-        if ($symb1->getType() === 'int' && $symb2->getType() === 'int') {
-            $result = intval($symb1->getValue()) < intval($symb2->getValue());
-        } elseif ($symb1->getType() === 'string' && $symb2->getType() === 'string') {
-            $result = strcasecmp($symb1->getValue(), $symb2->getValue()) < 0;
+        $valueAndFrame = $this->getSymbValue($symb1, ['int', 'bool', 'string']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['int', 'bool', 'string']);
+        $value2 = $valueAndFrame[0];
+
+        if ($symb1 instanceof Operand) {
+            $type1 = $symb1->getType();
         } else {
-            throw new OperandTypeException('QT operation supports only int, bool or string operands.');
+            $type1 = $symb1->getValueType();
         }
 
-        $frame->addValueToVariable($var, $result);
+        if ($symb2 instanceof Operand) {
+            $type2 = $symb2->getType();
+        } else {
+            $type2 = $symb2->getValueType();
+        }
+
+        if ($type1 === 'int' && $type2 === 'int') {
+            $result = intval($value1) > intval($value2);
+        } elseif ($type1 === 'string' && $type2 === 'string') {
+            $result = strcasecmp($value1, $value2) > 0;
+        } elseif ($type1 === 'bool' && $type2 === 'bool') {
+            $result = $value1 > $value2;
+        } elseif ($type1 === 'var' && $type2 === 'var') {
+            $result = $value1 > $value2;
+        } else {
+            throw new OperandTypeException('LT operation supports only int, bool or string operands.');
+        }
+
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, $type1);
+        }
     }
 
     public function eq()
     {
-        $var = $this->args[0]; 
+        $var = $this->args[0];
         $symb1 = $this->args[1];
         $symb2 = $this->args[2];
 
@@ -781,26 +907,52 @@ class Comparison extends Instruction
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjištění, zda je proměnná v aktuálním rámci nebo v globálním rámci a uložení do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($var);
 
-        // Porovnání hodnot a uložení výsledku do proměnné
-        if ($symb1->getType() === 'nil') {
-            $result = $symb2->getType() === 'nil';
-        } elseif ($symb1->getType() === $symb2->getType()) {
-            if ($symb1->getType() === 'int') {
-                $result = intval($symb1->getValue()) === intval($symb2->getValue());
-            } elseif ($symb1->getType() === 'string') {
-                $result = strcmp($symb1->getValue(), $symb2->getValue()) === 0;
-            } elseif ($symb1->getType() === 'bool') {
-                $result = $symb1->getValue() === $symb2->getValue();
-            } else {
-                throw new OperandTypeException('EQ operation supports only int, string, bool, and nil operands.');
-            }
+        $valueAndFrame = $this->getSymbValue($symb1, ['int', 'bool', 'string']);
+        $value1 = $valueAndFrame[0];
+        $frame1 = $valueAndFrame[1];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['int', 'bool', 'string']);
+        $value2 = $valueAndFrame[0];
+        $frame2 = $valueAndFrame[1];
+
+        if ($symb1 instanceof Operand) {
+            $type1 = $symb1->getType();
         } else {
-            $result = false;
+            $symbol1 = $frame1->getVariable($symb1);
+            $type1 = $symbol1->getValueType();
         }
 
-        $frame->addValueToVariable($var, $result);
+        if ($symb2 instanceof Operand) {
+            $type2 = $symb2->getType();
+        } else {
+            $symbol2 = $frame2->getVariable($symb2);
+            $type2 = $symbol2->getValueType();
+        }
+
+        if ($type1 === 'int' && $type2 === 'int') {
+            $result = intval($value1) === intval($value2);
+        } elseif ($type1 === 'string' && $type2 === 'string') {
+            $result = strcasecmp($value1, $value2) == 0;
+        } elseif ($type1 === 'bool' && $type2 === 'bool') {
+            $result = $value1 === $value2;
+        } elseif ($type1 === 'var' && $type2 === 'var') {
+            $result = $value1 === $value2;
+        } elseif ($type1 === 'nil' && $type2 === 'nil') {
+            $result = true;
+        } elseif ($type1 === 'nil' && in_array($type2, ['int', 'bool', 'string'])) {
+            $result = false;
+        } elseif ($type2 === 'nil' && in_array($type1, ['int', 'bool', 'string'])) {
+            $result = false;
+        } else {
+            throw new OperandTypeException('LT operation supports only int, bool or string operands.');
+        }
+
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, $type1);
+        }
     }
 
     public function getSpecificMethod()
@@ -826,7 +978,7 @@ class Logical extends Instruction
     public function __construct($opcode, $args, $order, $frameManager)
     {
         parent::__construct($opcode, $args, $order, $frameManager);
-        
+
         // Zkontroluje, zda je počet argumentů správný
         if (count($args) !== 3 && $opcode !== 'not') {
             throw new SemanticException('Invalid number of arguments');
@@ -845,13 +997,13 @@ class Logical extends Instruction
         }
 
         // Zkontroluje, zda je druhý argument typu bool
-        if (!($args[1] instanceof Operand) || $args[1]->getType() !== 'bool') {
+        if (!($args[1] instanceof Operand) || $args[1]->getType() !== 'bool' || !($args[1] instanceof Variable) || $args[1]->getValueType() !== 'bool') {
             throw new OperandTypeException('Second argument must be bool');
         }
 
         // Zkontroluje, zda jsou druhý a třetí argument typu bool
         if ($opcode !== 'not') {
-            if (!($args[2] instanceof Operand) || $args[2]->getType() !== 'bool') {
+            if (!($args[2] instanceof Operand) || $args[2]->getType() !== 'bool' || !($args[2] instanceof Variable) || $args[2]->getValueType() !== 'bool') {
                 throw new OperandTypeException('Third argument must be bool');
             }
         }
@@ -860,57 +1012,86 @@ class Logical extends Instruction
     public function and()
     {
         $var = $this->args[0];
-        $symb1 = $this->args[1]->getValue();
-        $symb2 = $this->args[2]->getValue();
+        $symb1 = $this->args[1];
+        $symb2 = $this->args[2];
 
-        $result = $symb1 && $symb2;
-        
+
         // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($var);
 
-        $frame->addValueToVariable($var, $result);
+        $valueAndFrame = $this->getSymbValue($symb1, ['bool']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['bool']);
+        $value2 = $valueAndFrame[0];
+
+        $type2 = $symb2->getType();
+        $result = $value1 && $value2;
+
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, $type2);
+        }
     }
 
     public function or()
     {
         $var = $this->args[0];
-        $symb1 = $this->args[1]->getValue();
-        $symb2 = $this->args[2]->getValue();
+        $symb1 = $this->args[1];
+        $symb2 = $this->args[2];
 
-        $result = $symb1 || $symb2;
-        
         // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($var);
 
-        $frame->addValueToVariable($var, $result);
+        $valueAndFrame = $this->getSymbValue($symb1, ['bool']);
+        $value1 = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['bool']);
+        $value2 = $valueAndFrame[0];
+
+        $type2 = $symb2->getType();
+        $result = $value1 || $value2;
+
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, $type2);
+        }
     }
 
     public function not()
     {
         $var = $this->args[0];
-        $symb = $this->args[1]->getValue();
+        $symb1 = $this->args[1]->getValue();
 
-        $result = !$symb;
-        
+
         // Ověření, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($this->args[0]) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($this->args[0])) {
             throw new VariableAccessException('Variable is not initialized');
         }
         // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($var);
 
-        $frame->addValueToVariable($var, $result);
+        $valueAndFrame = $this->getSymbValue($symb1, ['bool']);
+        $value1 = $valueAndFrame[0];
+        $type1 = $symb1->getType();
+
+        $result = !$value1;
+
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $result, $type1);
+        }
     }
 
     public function getSpecificMethod()
@@ -941,7 +1122,7 @@ class TypeConversion extends Instruction
     public function int2char()
     {
         $var = $this->args[0];
-        $symb = $this->args[1];
+        $symb1 = $this->args[1];
 
         // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
@@ -956,31 +1137,20 @@ class TypeConversion extends Instruction
             throw new OperandTypeException('First argument must be variable');
         }
 
-        // Zkontroluje, zda je druhý argument integer nebo proměnná
-        // Získá hodnotu ze zdroje (operandu nebo proměnné)
-        if ($symb instanceof Operand) {
-            $value = $symb->getValue();
-        } elseif ($symb instanceof Variable) {
-            // Zkontroluje, zda je proměnná inicializovaná
-            if (!$frame->isVariableInFrame($symb) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symb)) {
-                throw new VariableAccessException('Variable is not initialized');
-            }
-            // zjisit, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame2
-            $frame = $frame->isVariableInFrame($symb) ? $frame : $this->frameManager->getGlobalFrame();
-            $value = $frame->getVariable($symb)->getValue();
-        } else {
-            throw new OperandTypeException('Second argument must be operand or variable');
-        }
+        $variable = $frame->getVariable($var);
+
+        $valueAndFrame = $this->getSymbValue($symb1, ['string', 'int']);
+        $value1 = $valueAndFrame[0];
 
         // Převede hodnotu integer na string
-        $char = mb_chr($value, 'UTF-8');
+        $char = mb_chr($value1, 'UTF-8');
 
         // Zkontroluje, zda je hodnota platná
         if ($char === false) {
             throw new OperandValueException('Invalid Unicode ordinal value');
         }
 
-        $frame->addValueToVariable($var, $char);
+        $frame->addValueToVariable($variable, $char, "int");
     }
 
     public function stri2int()
@@ -994,17 +1164,15 @@ class TypeConversion extends Instruction
         if (!$currentFrame->isVariableInFrame($var) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($var)) {
             throw new VariableAccessException('Variable is not initialized');
         }
-        // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
-        $frame = $currentFrame->isVariableInFrame($this->args[0]) ? $currentFrame : $this->frameManager->getGlobalFrame();
 
-        // Zkontroluje, zda jsou argumenty string a integer
-        if ($symb1->getType() !== 'string' || $symb2->getType() !== 'int') {
-            throw new OperandTypeException('Second argument must be string, third argument must be integer');
-        }
+        $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+        $variable = $frame->getVariable($var);
 
-        // Získá hodnoty operandů
-        $string = $symb1->getValue();
-        $index = $symb2->getValue();
+        $valueAndFrame = $this->getSymbValue($symb1, ['string']);
+        $string = $valueAndFrame[0];
+
+        $valueAndFrame = $this->getSymbValue($symb2, ['int']);
+        $index = $valueAndFrame[0];
 
         // Zkontroluje, zda je index nezáporný a menší než délka řetězce
         if ($index < 0 || $index >= mb_strlen($string, 'UTF-8')) {
@@ -1014,7 +1182,9 @@ class TypeConversion extends Instruction
         // Získá ordinální hodnotu znaku na daném indexu
         $ordinalValue = mb_ord(mb_substr($string, $index, 1, 'UTF-8'), 'UTF-8');
 
-        $frame->addValueToVariable($var, $ordinalValue);
+        if ($frame !== null) {
+            $frame->addValueToVariable($variable, $ordinalValue, "int");
+        }
     }
 
     public function getSpecificMethod()
@@ -1044,7 +1214,7 @@ class Input extends Instruction
     {
 
         $var = $this->args[0];
-        
+
         // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
         $currentFrame = $this->frameManager->getCurrentFrame();
         if (!$currentFrame->isVariableInFrame($var) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($var)) {
@@ -1069,7 +1239,7 @@ class Input extends Instruction
         if ($value === null) {
             $frame->addValueToVariable($var, 'nil');
         } else {
-        $frame->addValueToVariable($var, $value);
+            $frame->addValueToVariable($var, $value);
         }
     }
 
@@ -1103,7 +1273,7 @@ class Output extends Instruction
         // Pokud je argument proměnná, vypíše její hodnotu
         if ($symb instanceof Variable) {
             $var = $symb;
-        
+
             // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
             $currentFrame = $this->frameManager->getCurrentFrame();
             if (!$currentFrame->isVariableInFrame($var) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($var)) {
@@ -1119,7 +1289,7 @@ class Output extends Instruction
             // Pokud je argument něco jiného, vyhodí výjimku
             throw new OperandValueException('Invalid type of output');
         }
-        
+
         switch ($symb->getType()) {
             case 'var':
                 // Přečte hodnotu proměnné a vypíše ji i s novým řádkem 
@@ -1168,50 +1338,48 @@ class Debug extends Instruction
 
     public function dprint()
     {
-        // Získání symbolu ze vstupních argumentů
-        $symbol = $this->args[0];
+        // Zkontroluje, zda je počet argumentů správný
+        if (count($this->args) !== 1) {
+            throw new SemanticException('Invalid number of arguments');
+        }
 
-        // Získání hodnoty ze symbolu
-        $value = $this->getValueFromSymbol($symbol);
+        // Zkontroluje, zda je argument proměnná nebo operand
+        $symb = $this->args[0];
+        // Pokud je argument proměnná, vypíše její hodnotu
+        if ($symb instanceof Variable) {
+            $var = $symb;
+            // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
+            $currentFrame = $this->frameManager->getCurrentFrame();
+            if (!$currentFrame->isVariableInFrame($var) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($var)) {
+                throw new VariableAccessException('Variable is not initialized');
+            }
+            // Zjistí, zda je proměnná v aktuálním rámci, pokud ne tak jestli není v globálním rámci a uloží do proměnné $frame
+            $frame = $currentFrame->isVariableInFrame($var) ? $currentFrame : $this->frameManager->getGlobalFrame();
+            $value = $frame->getVariable($var)->getValue();
+        } elseif ($symb instanceof Operand) {
+            // Pokud je argument operand, vypíše jeho hodnotu
+            $value = $symb->getValue();
+        } else {
+            // Pokud je argument něco jiného, vyhodí výjimku
+            throw new OperandValueException('Invalid type of output');
+        }
 
         // Výpis hodnoty na standardní chybový výstup (stderr)
-        fwrite(STDERR, $value . PHP_EOL);
+        fwrite(STDERR, $value);
     }
 
     public function break()
     {
+        // Zkontroluje, zda je počet argumentů správný
+        if (count($this->args) !== 0) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
         // Výpis stavu interpretu na standardní chybový výstup (stderr)
         $interpreterState = $this->getInterpreterState();
         fwrite(STDERR, $interpreterState . PHP_EOL);
     }
 
-    private function getValueFromSymbol($symbol)
-    {
-        switch ($symbol->getType()) {
-            case 'var':
-                // Zkontroluje, zda je proměnná z prvního argumentu inicializovaná v aktuálním rámci
-                $currentFrame = $this->frameManager->getCurrentFrame();
-                if (!$currentFrame->isVariableInFrame($symbol) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($symbol)) {
-                    throw new VariableAccessException('Variable is not initialized');
-                }
-                // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame
-                $frame = $currentFrame->isVariableInFrame($symbol) ? $currentFrame : $this->frameManager->getGlobalFrame();
-                $value = $frame->getVariableValue($symbol);
-            case 'int':
-                $value = $symbol->getValue();
-            case 'bool':
-                $value = $symbol->getValue() ? 'true' : 'false';
-            case 'string':
-                $value = $symbol->getValue();
-            case 'nil':
-                $value = '';
-
-            return $value;
-
-            default:
-                throw new OperandTypeException('Invalid operand type');
-        }
-    }
 
     private function getInterpreterState()
     {
@@ -1285,6 +1453,37 @@ class VariableOperation extends Instruction
         // Získá hodnotu ze zdroje (operandu nebo proměnné)
         if ($source instanceof Operand) {
             $value = $source->getValue();
+            $type = $source->getType();
+        } elseif ($source instanceof Variable) {
+            // Zkontroluje, zda je proměnná inicializovaná
+            if (!$frame->isVariableInFrame($source) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($source)) {
+                throw new VariableAccessException('Variable is not initialized');
+            }
+            // zjisit, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame2
+            $frame2 = $frame->isVariableInFrame($source) ? $frame : $this->frameManager->getGlobalFrame();
+            $value = $frame2->getVariable($source)->getValue();
+            $type = $frame2->getVariable($source)->getType();
+        } else {
+            throw new OperandTypeException('Second argument must be operand or variable');
+        }
+
+        // Uloží hodnotu do proměnné
+        $frame->addValueToVariable($var, $value, $type);
+    }
+
+    public function pushs()
+    {
+        // Kontrola počtu argumentů
+        if (count($this->args) !== 1) {
+            throw new SemanticException('Invalid number of arguments');
+        }
+
+        $source = $this->args[0];
+        // Kontrola, zda je argument inicializovaná proměnná
+        // Získá hodnotu ze zdroje (operandu nebo proměnné)
+        $frame = $this->frameManager->getCurrentFrame();
+        if ($source instanceof Operand) {
+            $value = $source->getValue();
         } elseif ($source instanceof Variable) {
             // Zkontroluje, zda je proměnná inicializovaná
             if (!$frame->isVariableInFrame($source) && !$this->frameManager->getGlobalFrame()->isVariableInFrame($source)) {
@@ -1296,23 +1495,9 @@ class VariableOperation extends Instruction
         } else {
             throw new OperandTypeException('Second argument must be operand or variable');
         }
-
-        // Uloží hodnotu do proměnné
-        $frame->addValueToVariable($var, $value);
-    }
-
-    public function pushs()
-    {
-        // Kontrola počtu argumentů
-        if (count($this->args) !== 1) {
-            throw new SemanticException('Invalid number of arguments');
-        }
-
-        $symbol = $this->args[0];
-
         // Uložení hodnoty na datový zásobník
         $dataS = $this->frameManager->getDataStack();
-        $dataS->push($symbol);
+        $dataS->push($value);
     }
 
     public function pops()
@@ -1351,7 +1536,7 @@ class VariableOperation extends Instruction
         }
 
         // Uložení hodnoty do proměnné
-        $frame->addValueToVariable($var, $symbol->getValue());
+        $frame->addValueToVariable($var, $symbol, 'string');
     }
 
     public function getSpecificMethod()
@@ -1385,7 +1570,7 @@ class ConditionalJump extends Instruction
     }
 
     public function jumpIfEq()
-    {    
+    {
         // Zkontroluje počet argumentů
         if (count($this->args) !== 3) {
             throw new SemanticException('Invalid number of arguments');
@@ -1394,7 +1579,7 @@ class ConditionalJump extends Instruction
         if (!($this->args[0]->getType() === 'label')) {
             throw new OperandTypeException('First argument must be label');
         }
-    
+
         // Druhý a třetí argument musí být proměnné nebo konstanty
         // Pokud jde o proměnnou, musí být inicializovaná
         $frame1 = $frame2 = null; // Inicializace proměnných pro rámce
@@ -1414,7 +1599,7 @@ class ConditionalJump extends Instruction
             // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame2
             $frame2 = $currentFrame->isVariableInFrame($this->args[2]) ? $currentFrame : $this->frameManager->getGlobalFrame();
         }
-    
+
         // Porovnání hodnot symbolů
         // Pokud je hodnota proměnné, získá hodnotu proměnné, jinak získá hodnotu operandu
         if ($this->args[1]->getType() === 'var') {
@@ -1427,7 +1612,7 @@ class ConditionalJump extends Instruction
         } else {
             $value2 = $this->args[2]->getValue();
         }
-    
+
         // Podmíněný skok na základě rovnosti hodnot
         if ($value1 === $value2) {
             // Vrátí true, pokud dojde k podmíněnému skoku
@@ -1448,7 +1633,7 @@ class ConditionalJump extends Instruction
         if (!($this->args[0]->getType() === 'label')) {
             throw new OperandTypeException('First argument must be label');
         }
-    
+
         // Druhý a třetí argument musí být proměnné nebo konstanty
         // Pokud jde o proměnnou, musí být inicializovaná
         $frame1 = $frame2 = null; // Inicializace proměnných pro rámce
@@ -1468,7 +1653,7 @@ class ConditionalJump extends Instruction
             // Zjistí, zda je proměnná v aktuálním rámci nebo v globálním rámci a uloží do proměnné $frame2
             $frame2 = $currentFrame->isVariableInFrame($this->args[2]) ? $currentFrame : $this->frameManager->getGlobalFrame();
         }
-    
+
         // Porovnání hodnot symbolů
         // Pokud je hodnota proměnné, získá hodnotu proměnné, jinak získá hodnotu operandu
         if ($this->args[1]->getType() === 'var') {
@@ -1481,7 +1666,7 @@ class ConditionalJump extends Instruction
         } else {
             $value2 = $this->args[2]->getValue();
         }
-    
+
         // Podmíněný skok na základě rovnosti hodnot
         if ($value1 !== $value2) {
             // Vrátí true, pokud dojde k podmíněnému skoku
@@ -1498,7 +1683,7 @@ class ConditionalJump extends Instruction
             case 'jumpifeq':
                 return [$this, 'jumpIfEq'];
             case 'jumpifneq':
-                return [$this, 'jumpIfNeq']; 
+                return [$this, 'jumpIfNeq'];
             default:
                 throw new SemanticException('Unknown opcode');
         }
